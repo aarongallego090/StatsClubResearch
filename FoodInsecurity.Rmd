@@ -1,0 +1,143 @@
+---
+title: "Food Insecurity"
+output: html_document
+date: "2025-10-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+```
+
+### Read CSV and filter by state
+
+```{r}
+food <- read.csv('/Users/aarongallego/Downloads/2019 Food Access Research Atlas Data/Food Access Research Atlas.csv',
+        head=TRUE, 
+        stringsAsFactors = FALSE) |>
+  mutate(GEOID=as.numeric(CensusTract))
+
+```
+
+```{r}
+food_sfl <- subset(food, County %in% c("Miami-Dade County", "Broward County", "Palm Beach County"))
+food_sfl <- food_sfl |>
+  mutate(
+    TractWhite = as.numeric(TractWhite),
+    TractHispanic = as.numeric(TractHispanic),
+    TractBlack = as.numeric(TractBlack),
+    Pop2010 = as.numeric(Pop2010),
+    
+    Maj_White = as.numeric(ifelse(
+      !is.na(TractWhite) & !is.na(Pop2010) & Pop2010 > 0,
+      (TractWhite / Pop2010) > 0.50,
+      NA
+    )),
+    
+    Maj_Hispanic = as.numeric(ifelse(
+      !is.na(TractHispanic) & !is.na(Pop2010) & Pop2010 > 0,
+      (TractHispanic / Pop2010) > 0.50,
+      NA
+    )),
+    
+    Maj_Black = as.numeric(ifelse(
+      !is.na(TractBlack) & !is.na(Pop2010) & Pop2010 > 0,
+      (TractBlack / Pop2010) > 0.50,
+      NA
+    ))
+  )
+food_sfl$MajRace <- NA
+food_sfl$MajRace[food_sfl$Maj_White == TRUE] <- "White"
+food_sfl$MajRace[food_sfl$Maj_Black == TRUE] <- "Black"
+food_sfl$MajRace[food_sfl$Maj_Hispanic == TRUE] <- "Hispanic"
+food_sfl$MajRace <- factor(food_sfl$MajRace, levels = c("White", "Black", "Hispanic"))
+```
+
+------------------------------------------------------------------------
+
+## Are Race-Majority and Low Income/Access Associated?
+
+### Independence Model
+
+```{r fig.width = 10, fig.height = 7}
+tbl <- xtabs(~ LILATracts_1And10 + MajRace, data = food_sfl)
+df <- as.data.frame(tbl)
+
+poisson_indepencence <- glm(Freq ~ LILATracts_1And10 + MajRace, data = df, family = poisson)
+summary(poisson_indepencence)
+```
+
+-   We expect more majority White tracts, followed by Hispanic and Black
+
+### Interaction Model 
+
+```{r}
+poisson_interaction <- glm(Freq ~ LILATracts_1And10 * MajRace, data = df, family = poisson)
+summary(poisson_interaction)
+```
+
+### Likelihood Ratio Test
+
+```{r}
+anova(poisson_indepencence, poisson_interaction, test="Chisq")
+```
+
+-   There is interaction between race and low-income/access. Majority Black tracts are 4.4 times more likely to be low-income/access.
+
+------------------------------------------------------------------------
+
+# Mapping
+
+```{r}
+library(tidycensus)
+library(tigris)
+library(leaflet)
+```
+
+Download SF census data
+
+```{r}
+year = 2019
+
+# MEDIAN HOME VALUE with Geometry
+flMedvG <- get_acs(geography = "tract", year=year,
+                   state = "FL", 
+                   variables = "B25077_001E", 
+                   geometry = TRUE)%>%
+  mutate(GEOID=as.numeric(GEOID))
+```
+
+Make the map
+
+```{r}
+# Join Spatial with DF
+joinFood<-geo_join(spatial_data=flMedvG , data_frame=food_sfl, 
+                 by_sp='GEOID', by_df='GEOID')
+
+## CREATE A POPUP MESSAGE
+popup<-paste("Tract: ", as.character(substring(joinFood$GEOID, 6, 11)), "<br>",
+             "Population Low Access: ", as.character(joinFood$LAPOP1_10))
+
+### QUANTILE COLORS
+joinFood$LAPOP1_10 <- as.numeric(joinFood$LA1and20)
+qpal <- colorFactor("viridis", domain = joinFood$LA1and20)
+
+
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(data = joinFood,
+              fillColor = ~qpal(LA1and20),
+              fillOpacity = 0.7,
+              color = "grey",
+              opacity = 0.5,
+              weight = 0.4,
+              smoothFactor = 0.2,
+              popup = popup) %>%
+  addLegend("bottomright",
+            pal = qpal,
+            values = joinFood$HUNVFlag,
+            opacity = 0.7,
+            title = "Low Access Population (Quantiles)")
+
+```
