@@ -1,0 +1,97 @@
+---
+title: "Food Insecurity Project"
+author: "Bryce Ownby"
+date: "2025-10-06"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(corrr)
+library(dplyr)
+library(ggplot2)
+library(tidycensus)
+library(tigris)
+library(leaflet)
+options(tigris_use_cache=TRUE)
+
+fc <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/SF_Census_Data_2019.csv")
+```
+# Recreating Interactive Map with Median Home Value
+```{r, error=FALSE}
+fc <- fc |>
+  mutate(GEOID=as.numeric(CensusTract))
+
+MedvG <- get_acs(geography="tract", year=2019, state="FL", variables="B25077_001E", 
+                   geometry = TRUE) |>
+  mutate(GEOID=as.numeric(GEOID))
+
+join <- geo_join(spatial_data=MedvG, data_frame=fc, by_sp="GEOID", by_df="GEOID")
+
+popup<-paste("Tract: ", as.character(substring(join$GEOID,6,11)), "<br>", "Population Low Access: ", as.character(join$LAPOP1_10))
+
+qpal<- colorQuantile("viridis",domain=as.numeric(join$LAPOP1_10),n=5,na.color="#FFFFFF")
+
+leaflet() |>
+  addProviderTiles("CartoDB.Positron") |>
+  addPolygons(data=join,
+              fillColor= ~qpal(as.numeric(LAPOP1_10)),
+              fillOpacity=0.7,
+              color="grey",
+              opacity=0.5,
+              weight=0.4,
+              smoothFactor=0.2,
+              popup=popup) |>
+  addLegend("bottomright", pal=qpal, values=as.numeric(as.character(join$LAPOP1_10)), opacity=0.7,title="Percentiles")
+```
+
+# Kolmogorov-Smirnov (KS) Testing Between Counties for Poverty Rate
+```{r}
+#Broward vs Palm Beach
+BPB<-ks.test(fc$PovertyRate[fc$County=="Broward County"],fc$PovertyRate[fc$County=="Palm Beach County"])
+
+#Broward vs Miami-Dade
+BMD<-ks.test(fc$PovertyRate[fc$County=="Broward County"],fc$PovertyRate[fc$County=="Miami-Dade County"])
+
+#Palm Beach vs Miami-Dade
+PBMD<-ks.test(fc$PovertyRate[fc$County=="Palm Beach County"],fc$PovertyRate[fc$County=="Miami-Dade County"])
+
+pvalues <- c(BPB$p.value,BMD$p.value,PBMD$p.value)
+new_pvals <- p.adjust(pvalues,method = "bonferroni")
+names <- c("Broward vs Palm Beach","Broward vs Miami-Dade","Palm Beach vs Miami-Dade")
+
+results_table <- data.frame(Comparison = names, Raw_P_value = round(pvalues,7), Bonferroni_P_Value=round(new_pvals,7))
+results_table
+```
+# Regression Analysis of the Association between Low Access and Poverty Rates
+```{r}
+regression_data <- fc |>
+  select(c(PovertyRate,lapophalfshare)) |>
+  mutate(lapophalfshare=as.numeric(lapophalfshare)) |>
+  drop_na()
+
+lm(data=regression_data, lapophalfshare ~ PovertyRate)
+
+shapiro.test(regression_data$lapophalfshare)
+shapiro.test(regression_data$PovertyRate)
+
+cor.test(x=regression_data$lapophalfshare,y=regression_data$PovertyRate,method="kendall")
+
+ggplot(regression_data, aes(x = lapophalfshare, y =PovertyRate)) +
+  geom_point(color = "#2C7BB6", size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "#D7191C", linetype = "dashed") +
+  labs(
+    title = "Are Tracts with Low Access more likely to have higher Poverty Rates?",
+    x = "% Share of Low Access Population in Tract",
+    y = "Poverty Rate"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+```
+An initial regression model comparing the share of the population with low access at 1/2 of a mile with the poverty rate for each census tract identifies that the percent of a population with low access is negatively associated with poverty rate (meaning lower access correlates with lower poverty rates). However, the Shapiro-Wilk test identifies that neither of these variables is normally distributed, and simple linear regression analyses are overly simplistic. Instead, we conducted the non-parametric Kendall's rank correlation test, which estimates a correlation coefficient of -0.21076, indicating a very weak, negative association between poverty rate and low access proportion for a census tract. 
