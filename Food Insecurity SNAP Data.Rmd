@@ -1,0 +1,29 @@
+---
+title: "Food Insecurity SNAP Analysis"
+author: "Bryce Ownby"
+date: "2025-11-09"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+fc <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/SF_Census_Data_2019.csv")
+SNAP <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/GeocodeResultsSNAP.csv", colClasses = c(STATE.CODE  = "character",                                                                      COUNTY.CODE = "character",
+               TRACT.CODE  = "character"))
+```
+
+
+```{r}
+SNAP <- SNAP |>
+  mutate(CensusTract=paste(STATE.CODE,COUNTY.CODE,TRACT.CODE,sep=""))
+
+tract_count <- SNAP |>
+  count(CensusTract)
+
+tract_count
+```
+
