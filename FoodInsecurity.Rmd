@@ -27,7 +27,16 @@ food_sfl <- food_sfl |>
     TractWhite = as.numeric(TractWhite),
     TractHispanic = as.numeric(TractHispanic),
     TractBlack = as.numeric(TractBlack),
+    TractAsian = as.numeric(TractAsian),
+    TractNHOPI = as.numeric(TractNHOPI),
+    TractAIAN = as.numeric(TractAIAN),
+    TractOMultir = as.numeric(TractOMultir),
+
+    TractSNAP = as.numeric(TractSNAP),
+    
     Pop2010 = as.numeric(Pop2010),
+    OHU2010 = as.numeric(OHU2010),
+    
     
     Maj_White = as.numeric(ifelse(
       !is.na(TractWhite) & !is.na(Pop2010) & Pop2010 > 0,
@@ -45,36 +54,83 @@ food_sfl <- food_sfl |>
       !is.na(TractBlack) & !is.na(Pop2010) & Pop2010 > 0,
       (TractBlack / Pop2010) > 0.50,
       NA
+    )),
+    
+    Maj_Asian = as.numeric(ifelse(
+      !is.na(TractAsian) & !is.na(Pop2010) & Pop2010 > 0,
+      (TractAsian / Pop2010) > 0.50,
+      NA
+    )),
+    
+    Maj_NHOPI = as.numeric(ifelse(
+      !is.na(TractNHOPI) & !is.na(Pop2010) & Pop2010 > 0,
+      (TractNHOPI / Pop2010) > 0.50,
+      NA
+    )),
+    
+    Maj_AIAN = as.numeric(ifelse(
+      !is.na(TractAIAN) & !is.na(Pop2010) & Pop2010 > 0,
+      (TractAIAN / Pop2010) > 0.50,
+      NA
+    )),
+    
+    Maj_Omultir = as.numeric(ifelse(
+      !is.na(TractOMultir) & !is.na(Pop2010) & Pop2010 > 0,
+      (TractOMultir / Pop2010) > 0.50,
+      NA
+    )),
+    
+    Prop_SNAP = as.numeric(ifelse(
+      !is.na(TractSNAP) & !is.na(OHU2010) & OHU2010 > 0,
+      round((TractSNAP / OHU2010), 2),
+      1
     ))
+    
   )
 food_sfl$MajRace <- NA
-food_sfl$MajRace[food_sfl$Maj_White == TRUE] <- "White"
-food_sfl$MajRace[food_sfl$Maj_Black == TRUE] <- "Black"
-food_sfl$MajRace[food_sfl$Maj_Hispanic == TRUE] <- "Hispanic"
-food_sfl$MajRace <- factor(food_sfl$MajRace, levels = c("White", "Black", "Hispanic"))
+food_sfl$MajRace[food_sfl$Maj_White == 1] <- "White"
+food_sfl$MajRace[food_sfl$Maj_Black == 1] <- "Black"
+food_sfl$MajRace[food_sfl$Maj_Hispanic == 1] <- "Hispanic"
+food_sfl$MajRace[food_sfl$Maj_Asian == 1] <- "Asian"
+food_sfl$MajRace[food_sfl$Maj_NHOPI == 1] <- "NHOPI"
+food_sfl$MajRace[food_sfl$Maj_AIAN == 1] <- "AIAN"
+food_sfl$MajRace[food_sfl$Maj_OMultir == 1] <- "OMultir"
+
+
+food_sfl$MajRace <- factor(food_sfl$MajRace, 
+                           levels = c("White", "Black", "Hispanic", "Asian", "NHOPI", "AIAN", "OMultir"))
 ```
 
 ------------------------------------------------------------------------
 
-## Are Race-Majority and Low Income/Access Associated?
+# Poisson Regression: Race & Low Income/Access
 
 ### Independence Model
 
 ```{r fig.width = 10, fig.height = 7}
+
 tbl <- xtabs(~ LILATracts_1And10 + MajRace, data = food_sfl)
 df <- as.data.frame(tbl)
 
+addmargins(table(food_sfl$LILATracts_1And10, food_sfl$MajRace))
+
+```
+
+```{r}
 poisson_indepencence <- glm(Freq ~ LILATracts_1And10 + MajRace, data = df, family = poisson)
 summary(poisson_indepencence)
+print("ChiSq Test: p = 0.0005")
+1 - pchisq(15.021, 2)
 ```
 
 -   We expect more majority White tracts, followed by Hispanic and Black
 
-### Interaction Model 
+### Interaction Model
 
 ```{r}
 poisson_interaction <- glm(Freq ~ LILATracts_1And10 * MajRace, data = df, family = poisson)
 summary(poisson_interaction)
+exp(1.49056)
 ```
 
 ### Likelihood Ratio Test
@@ -87,7 +143,51 @@ anova(poisson_indepencence, poisson_interaction, test="Chisq")
 
 ------------------------------------------------------------------------
 
-# Mapping
+# GLM: Low Access and Prop SNAP
+
+```{r}
+dat1 <- food_sfl |> filter(Prop_SNAP < 1) |> select(LA1and10, Prop_SNAP, TractSNAP, OHU2010)
+ggplot(dat1, aes(x= factor(LA1and10), y = Prop_SNAP, color = LA1and10)) + 
+  geom_jitter() + 
+  theme_minimal() + 
+  ylim(0,1) +
+  ylab("% Households on SNAP") +
+  xlab("Low-Access at 1 Mile") +
+  ggtitle("Low Access vs % Households on SNAP") + 
+  guides(color = "none")
+```
+
+```{r}
+glm_1 <- glm(Prop_SNAP ~ LA1and10, 
+    family = binomial(link = "probit"), 
+    weights = OHU2010 / 1000, 
+    data = dat1)
+summary(glm_1)
+print(pnorm(-0.36333))
+```
+
+------------------------------------------------------------------------
+
+# Car Access
+
+```{r}
+food_sfl$PropNoVeh = as.numeric(food_sfl$TractHUNV) / as.numeric(food_sfl$OHU2010)
+
+
+ggplot(food_sfl, aes(x = reorder(County, PropNoVeh), 
+                     y = PropNoVeh)) +
+  stat_summary(fun = mean, geom = "col", na.rm = TRUE) +
+  labs(
+    x = "County",
+    y = "Mean proportion",
+    title = "Average proportion of households without vehicles by county"
+  ) 
+
+```
+
+------------------------------------------------------------------------
+
+# Mapping - Low Access & \>1/4 SNAP
 
 ```{r}
 library(tidycensus)
@@ -108,7 +208,7 @@ flMedvG <- get_acs(geography = "tract", year=year,
   mutate(GEOID=as.numeric(GEOID))
 ```
 
-Make the map
+### Mapping for Food Access
 
 ```{r}
 # Join Spatial with DF
@@ -117,18 +217,18 @@ joinFood<-geo_join(spatial_data=flMedvG , data_frame=food_sfl,
 
 ## CREATE A POPUP MESSAGE
 popup<-paste("Tract: ", as.character(substring(joinFood$GEOID, 6, 11)), "<br>",
-             "Population Low Access: ", as.character(joinFood$LAPOP1_10))
+             "Proportion on SNAP", as.character(joinFood$Prop_SNAP), "<br>",
+             "Population: ", as.character(joinFood$OHU2010))
 
 ### QUANTILE COLORS
 joinFood$LAPOP1_10 <- as.numeric(joinFood$LA1and20)
-qpal <- colorFactor("viridis", domain = joinFood$LA1and20)
-
+qpal <- colorQuantile("YlOrRd", domain = joinFood$Prop_SNAP, n=4)
 
 leaflet() %>%
   addProviderTiles("CartoDB.Positron") %>%
   addPolygons(data = joinFood,
-              fillColor = ~qpal(LA1and20),
-              fillOpacity = 0.7,
+              fillColor = ~qpal(Prop_SNAP),
+              fillOpacity = ~ifelse(LA1and10 == 1 & Prop_SNAP > 0.20, 0.9, 0.2),
               color = "grey",
               opacity = 0.5,
               weight = 0.4,
@@ -136,8 +236,55 @@ leaflet() %>%
               popup = popup) %>%
   addLegend("bottomright",
             pal = qpal,
-            values = joinFood$HUNVFlag,
+            values = joinFood$Prop_SNAP,
             opacity = 0.7,
-            title = "Low Access Population (Quantiles)")
+            title = "Proportion of Households on SNAP (Quantiles)")
 
+```
+
+### Mapping for Vehicle and Access
+
+```{r}
+# Join Spatial with DF
+joinFood<-geo_join(spatial_data=flMedvG , data_frame=food_sfl, 
+                 by_sp='GEOID', by_df='GEOID')
+
+## CREATE A POPUP MESSAGE
+popup<-paste("Tract: ", as.character(substring(joinFood$GEOID, 6, 11)), "<br>",
+             "Proportion on SNAP", as.character(joinFood$Prop_SNAP), "<br>",
+             "Population: ", as.character(joinFood$OHU2010))
+
+### QUANTILE COLORS
+joinFood$LAPOP1_10 <- as.numeric(joinFood$LA1and20)
+qpal <- colorQuantile("YlOrRd", domain = joinFood$Prop_SNAP, n=4)
+
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(data = joinFood,
+              fillColor = ~qpal(Prop_SNAP),
+              fillOpacity = ~ifelse(as.numeric(lahunvhalf) / OHU2010 > 0.5, 0.9, 0.2),
+              color = "grey",
+              opacity = 0.5,
+              weight = 0.4,
+              smoothFactor = 0.2,
+              popup = popup) %>%
+  addLegend("bottomright",
+            pal = qpal,
+            values = joinFood$Prop_SNAP,
+            opacity = 0.7,
+            title = "Proportion of Households on SNAP (Quantiles)")
+```
+
+```{r}
+ggplot(data = food_sfl, aes_string(x = "MajRace", y = "LILATracts_1And10")) +
+      stat_summary(fun = "mean", geom = "bar")
+```
+
+```{r}
+dict <- data.frame(
+  name = c("1/2", "1", "10"),
+  var = c("LATracts_half", "LATracts1", "LATracts10")
+)
+distance <- dict$var[dict$name == "1/2"]
+food_sfl[[distance]]
 ```
