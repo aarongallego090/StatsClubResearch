@@ -1,0 +1,153 @@
+---
+title: "Food Insecurity Project Regression Work"
+author: "Bryce Ownby"
+date: "2025-11-04"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(corrr)
+library(dplyr)
+library(ggplot2)
+library(NSM3)
+library(corrr)
+
+fc <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/SF_Census_Data_2019.csv")
+SNAP <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/GeocodeResultsSNAP.csv", colClasses = c(STATE.CODE  = "character",                                                                      COUNTY.CODE = "character",
+               TRACT.CODE  = "character"))
+```
+
+# Kolmogorov-Smirnov (KS) Testing Poverty Rates Between Urban vs. Rural Areas
+```{r}
+urban <- fc |>
+  dplyr::select(PovertyRate,Urban) |>
+  dplyr::filter(Urban == 1)
+
+rural <- fc|>
+  dplyr::select(PovertyRate,Urban) |>
+  dplyr::filter(Urban == 0)
+
+shapiro.test(urban$PovertyRate)
+shapiro.test(rural$PovertyRate)
+
+ks.test(urban$PovertyRate,rural$PovertyRate, alternative = "less")
+wilcox.test(urban$PovertyRate,rural$PovertyRate, alternative = "greater")
+
+summary(urban$PovertyRate)
+summary(rural$PovertyRate)
+
+hist(urban$PovertyRate,breaks = 8)
+hist(rural$PovertyRate, breaks=8)
+
+
+ggplot(urban, aes(x = PovertyRate)) +
+  geom_histogram(bins = 8, fill = "#2C7BB6", color = "white", alpha = 0.8) +
+  labs(
+    title = "Distribution of Poverty Rates in Urban Census Tracts",
+    x = "Poverty Rate (%)",
+    y = "Number of Census Tracts") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank())
+    
+ggplot(rural, aes(x = PovertyRate)) +
+  geom_histogram(bins = 8, fill = "#D7191C", color = "white", alpha = 0.8) +
+  labs(
+    title = "Distribution of Poverty Rates in Rural Census Tracts",
+    x = "Poverty Rate (%)",
+    y = "Number of Census Tracts") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank())
+
+```
+We find significant statistical evidence that urban poverty rates in South Florida are higher than those of rural poverty rates. 
+
+# Correlation between SNAP Households/ SNAP Retailers Ratio and Low Access Rate
+```{r}
+SNAP <- SNAP |>
+  mutate(CensusTract=paste(STATE.CODE,COUNTY.CODE,TRACT.CODE,sep=""))
+
+tract_count <- SNAP |>
+  count(CensusTract) |>
+  mutate(CensusTract=as.character(CensusTract))
+
+fc <- fc |>
+  mutate(CensusTract=as.character(CensusTract)) |>
+  mutate(lasnap1share = as.numeric(lasnap1share)) |>
+  mutate(MedianFamilyIncome=as.numeric(MedianFamilyIncome))
+
+combined_SNAP <- left_join(fc,tract_count,by="CensusTract") |>
+  dplyr::select(CensusTract,n,PovertyRate,TractSNAP,lapop1share,lasnap1share,MedianFamilyIncome) |>
+  mutate(SNAPRatio = TractSNAP/n)
+
+hist(combined_SNAP$SNAPRatio)
+summary(combined_SNAP$SNAPRatio)
+max_ratio <- combined_SNAP |>
+  slice_max(SNAPRatio)
+
+# SNAPRatio and Poverty Rate
+cor.test(combined_SNAP$SNAPRatio,combined_SNAP$PovertyRate,method="spearman")
+
+ggplot(data=combined_SNAP,aes(x=SNAPRatio,y=PovertyRate))+
+  geom_point() +
+  geom_smooth(method="lm",se=FALSE)+
+  geom_smooth(method="loess",color="red")
+
+# Other Predictors
+snap_ratio_model <- lm(data=combined_SNAP,SNAPRatio ~ PovertyRate + MedianFamilyIncome + lasnap1share)
+summary(snap_ratio_model)
+
+snap_ratio_best <- lm(data=combined_SNAP,SNAPRatio ~ MedianFamilyIncome)
+summary(snap_ratio_best)
+
+ggplot(data=combined_SNAP,aes(x=MedianFamilyIncome,y=SNAPRatio))+
+  geom_point() +
+  geom_smooth(method="lm",se=FALSE)+
+  geom_smooth(method="loess",color="red")
+
+
+ggplot(combined_SNAP, aes(x = SNAPRatio)) +
+  geom_histogram(bins = 30, fill = "#2C7BB6", color = "white", alpha = 0.85) +
+  labs(
+    title = "Distribution of SNAP Household-to-Retailer Ratios",
+    x = "SNAP Ratio (Households per Retailer)",
+    y = "Number of Census Tracts") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank())
+```
+```{r}
+#Predicting Low Access SNAP @ 1 Mile with SNAP_Ratio
+
+cor.test(combined_SNAP$SNAPRatio,combined_SNAP$lasnap1share,method="spearman")
+r = 0.3359717
+ggplot(combined_SNAP, aes(x = SNAPRatio, y = lasnap1share)) +
+  geom_point(alpha = 0.5, color = "#2C7BB6") +
+  geom_smooth(method = "lm", se = TRUE, color = "#D7191C", size = 1) +
+  coord_cartesian(xlim = c(0, 600),ylim=c(0,40)) +
+  labs(
+    title = "Relationship Between SNAP Ratio \n and Low-Access SNAP Population Share",
+    x = "SNAP Ratio (Households per Retailer)",
+    y = "Low-Access SNAP \n Population Share (1 mile)") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    panel.grid.minor = element_blank()) +
+  theme(
+    axis.title.x=element_text(size=14),
+    axis.title.y=element_text(size=14),
+    plot.title=element_text(size=14)) +
+  annotate(geom = "text", x = 500, 35, 
+           label = paste("The Spearman correlation \n is ", r,".",sep=""),
+           size = 4, color = "black")
+```
+
