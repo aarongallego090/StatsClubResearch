@@ -1,0 +1,84 @@
+---
+title: "Food Insecurity Project Final"
+author: "Bryce Ownby"
+date: "2025-11-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(tidyverse)
+library(corrr)
+library(dplyr)
+library(ggplot2)
+library(NSM3)
+library(corrr)
+library(mblm)
+
+fc <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/SF_Census_Data_2019.csv")
+SNAP <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/GeocodeResultsSNAP.csv", colClasses = c(STATE.CODE  = "character",                                                                      COUNTY.CODE = "character",
+               TRACT.CODE  = "character"))
+
+SNAP <- SNAP |>
+  mutate(CensusTract=paste(STATE.CODE,COUNTY.CODE,TRACT.CODE,sep=""))
+
+tract_count <- SNAP |>
+  count(CensusTract) |>
+  mutate(CensusTract=as.character(CensusTract))
+
+fc <- fc |>
+  mutate(CensusTract=as.character(CensusTract)) |>
+  mutate(lasnap1share = as.numeric(lasnap1share)) |>
+  mutate(MedianFamilyIncome=as.numeric(MedianFamilyIncome))
+
+combined_SNAP <- left_join(fc,tract_count,by="CensusTract") |>
+  dplyr::select(CensusTract,n,PovertyRate,TractSNAP,lapop1share,lasnap1share,MedianFamilyIncome) |>
+  mutate(SNAPRatio = TractSNAP/n)
+
+head(combined_SNAP)
+```
+
+```{r}
+cor.test(combined_SNAP$SNAPRatio,combined_SNAP$PovertyRate,method="spearman")
+cor.test(combined_SNAP$SNAPRatio,combined_SNAP$PovertyRate)
+q=0.5314695
+
+cor.test(combined_SNAP$n,combined_SNAP$PovertyRate,method="spearman")
+cor.test(combined_SNAP$n,combined_SNAP$PovertyRate)
+
+fixed_snap <- combined_SNAP[,c("SNAPRatio","PovertyRate")]
+fixed_snap <- fixed_snap[complete.cases(fixed_snap),]
+#theil(fixed_snap$SNAPRatio,fixed_snap$PovertyRate,type="t",slopes=TRUE,alpha=0.10)
+
+shapiro.test(fixed_snap$SNAPRatio)
+shapiro.test(fixed_snap$PovertyRate)
+
+sen_model <-mblm(data=fixed_snap, PovertyRate ~ SNAPRatio)
+sen_model
+
+sen_int = 8.91036
+sen_slope = 0.05912
+
+ggplot(data=combined_SNAP,aes(x=SNAPRatio,y=PovertyRate))+
+  geom_point(alpha = 0.5, color = "#2C7BB6") +
+  geom_abline(intercept=sen_int,slope=sen_slope, color = "#D7191C", size = 1) +
+  coord_cartesian(xlim = c(0, 950),ylim=c(0,80)) +
+  labs(
+    title = "Relationship Between SNAP Ratio and Poverty Rate by Tract",
+    x = "SNAP Ratio (Households per Retailer",
+    y = "Poverty Rate") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    panel.grid.minor = element_blank()) +
+  theme(
+    axis.title.x=element_text(size=14),
+    axis.title.y=element_text(size=14),
+    plot.title=element_text(size=14)) +
+  annotate(geom = "text", x = 850, 70, 
+           label = paste("The Spearman correlation \n is ",q,".",sep=""),
+           size = 4, color = "black")
+```
+
