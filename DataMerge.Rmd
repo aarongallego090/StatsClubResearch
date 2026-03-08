@@ -1,0 +1,37 @@
+---
+title: "DataMerge"
+output: html_document
+date: "2026-03-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Merged and cleaned data will be uploaded to the Github respository. 
+
+```{r, dataread}
+#Read in datasets 1 (Codebook), 4 (FAH Items), 6 ( FAFHEvents), 9(Nutrient), and 12 (Access)
+household_codebook <- read.csv("~/Downloads/CSV_data_files/faps_household_puf.csv")
+fah_items <- read.csv("~/Downloads/CSV_data_files/faps_fahitem_puf.csv")
+fafh_event <- read.csv("~/Downloads/CSV_data_files/faps_fafhevent_puf.csv")
+fah_nutrient <- read.csv("~/Downloads/CSV_data_files/faps_fahnutrients.csv")
+access <- read.csv("~/Downloads/CSV_data_files/faps_access_puf.csv")
+
+```
+
+Combine fah datasets. 
+
+```{r, datamerge}
+library(dplyr)
+fah <- fah_items |> 
+  left_join(fah_nutrient, by = c("hhnum", "eventid", "itemnum"))
+head(fah)
+```
+
+combine access and household. 
+```{r, datamerge 2}
+ac_ho <- household |> 
+  left_join(access, by = "hhnum")
+head(ac_ho)
+```
