@@ -1,0 +1,119 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-01-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+```
+
+# Setup
+
+```{r read}
+household <- read.csv("~/Desktop/CSV_data_files/faps_household_puf.csv")
+household <- household |>
+  mutate(bracket = case_when(
+    inchhavg_r > 0 & inchhavg_r <= 993.75   ~ 1,
+    inchhavg_r > 993.75 & inchhavg_r <= 1987.50 ~ 2,
+    inchhavg_r > 1987.50 & inchhavg_r <= 2981.25 ~ 3,
+    inchhavg_r > 2981.25 & inchhavg_r <= 3975.00 ~ 4,
+    inchhavg_r > 3975.00 & inchhavg_r <= 4968.75 ~ 5,
+    inchhavg_r > 4968.75 & inchhavg_r <= 5962.50 ~ 6,
+    inchhavg_r > 5962.50                         ~ 7
+  )) |>
+  mutate(bracket = factor(bracket))
+
+
+individual <- read.csv("~/Desktop/CSV_data_files/faps_individual_puf.csv") |>
+  rename_with(tolower)
+```
+
+------------------------------------------------------------------------
+
+# FAH Nutrient Information
+
+### Join items/nutrients data, obtain total purchase amts/nutrients
+
+```{r}
+fah_items <- read.csv("~/Desktop/CSV_data_files/faps_fahitem_puf.csv")
+fah_nutrients <- read.csv("~/Desktop/CSV_data_files/faps_fahnutrients.csv")
+
+fah_combined <- fah_items|>
+  left_join(fah_nutrients, 
+            by = c("eventid", "hhnum", "itemnum")) 
+
+fah_macros <- fah_combined |>
+  filter(!is.na(totgramsunadj.x)) |>
+  group_by(hhnum) |>
+  mutate(
+    totgramsunadj.x = ifelse(!is.na(totgramsunadj.x), totgramsunadj.x, totgramsunadjimp.x)
+  ) |>
+  summarise(
+    sum_energy = sum(energy * totgramsunadj.x / 100, na.rm = TRUE),
+    sum_dietfib = sum(dietfiber * totgramsunadj.x / 100, na.rm = TRUE),
+    sum_carb    = sum(carb * totgramsunadj.x / 100, na.rm = TRUE),
+    sum_sugar   = sum(totsug * totgramsunadj.x / 100, na.rm = TRUE),
+    sum_fat     = sum(totfat * totgramsunadj.x / 100, na.rm = TRUE),
+    sum_satfat  = sum(satfat * totgramsunadj.x / 100, na.rm = TRUE),
+    sum_protein = sum(protein * totgramsunadj.x / 100, na.rm = TRUE)
+  ) |> 
+  full_join(household, 
+            by = "hhnum")
+```
+
+### Plotting
+
+```{r}
+ggplot(fah_macros, aes(x = targetgroup, y = sum_protein)) +
+  stat_summary(
+    fun = median,
+    fun.min = ~quantile(.x, 0.25),
+    fun.max = ~quantile(.x, 0.75),
+    geom = "pointrange"       
+  )
+
+ggplot(fah_macros, aes(x = targetgroup, y = sum_protein/sum_energy)) +
+    stat_summary(
+    fun = median,
+    fun.min = ~quantile(.x, 0.25),
+    fun.max = ~quantile(.x, 0.75),
+    geom = "pointrange"       
+  )
+```
+
+------------------------------------------------------------------------
+
+# Income & Food Purchases
+
+### Plot income vs primary store
+
+```{r scatterplot}
+household_super <- household |> 
+  filter(inchhavg_r > 0) |>
+  mutate(primstoretype = case_when(primstoretype == "122" ~ 1,
+                                   T == 1 ~ 0))
+
+
+ggplot(data = household_super, aes(log(inchhavg_r), primstoretype)) + 
+  geom_point() + 
+  geom_smooth(method = "glm",
+              method.args = list(family = binomial),
+              se = TRUE) +
+  xlab("Log monthly income") +
+  ylab("Primary store type") + 
+  geom_jitter(height = 0.1)
+```
+
+### Glm income vs primary store
+
+```{r}
+glm(primstoretype ~ log(inchhavg_r), 
+    data = household_super,
+    family=(binomial)) |> summary()
+```
+
+-   A 1unit increase increase of log monthly income increases the probability of shopping at a supermarket by 8%.
