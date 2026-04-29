@@ -1,0 +1,144 @@
+---
+title: "UCC Analysis"
+author: "Bryce Ownby"
+date: "2026-03-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(MASS)
+
+household <- read.csv("/Users/bryce/Downloads/Career/Stats Projects/CSV_data_files/faps_household_puf.csv")
+```
+
+
+## 
+```{r}
+childcare <- household |>
+  select(foodsufficient,expchildcare_r,famsize,adltfscat,foodsecureq2) |>
+  filter(
+    !foodsufficient %in% c(-998,-997,-996),
+    !expchildcare_r %in% c(-998,-997,-997))
+
+childcare <- childcare |>
+  mutate(ccexp_norm = expchildcare_r/famsize)
+
+summary(childcare$ccexp_norm)
+summary(childcare$expchildcare_r)
+
+childcare2 <- childcare |>
+  filter(expchildcare_r>0)
+
+summary(childcare2$ccexp_norm)
+summary(childcare2$expchildcare_r)
+
+childcare3 <- childcare |>
+  filter(expchildcare_r==0)
+
+summary(lm(foodsecureq2 ~ ccexp_norm, data=childcare))
+summary(lm(foodsecureq2 ~ ccexp_norm, data=childcare2))
+
+childcare4 <- childcare |>
+  mutate(pays_childcare = expchildcare_r >0)
+
+chisq.test(table(childcare4$pays_childcare, childcare4$foodsecureq2))
+table(childcare4$pays_childcare, childcare4$foodsecureq2)
+```
+# Plots
+```{r}
+childcare$spends_cc <- ifelse(childcare$expchildcare_r >0, "Spends on childcare","Does not spend on childcare")
+
+ggplot(childcare, aes(x=spends_cc, fill=spends_cc)) +
+  geom_bar() +
+  labs(
+    title = "Childcare Spending Among Households",
+    x="Childcare Spending",
+    y = "Count"
+  ) + 
+  geom_text(stat="count",aes(label=after_stat(count)),vjust=-0.5,size=4)+
+  scale_fill_manual(values=c("Does not spend on childcare"="steelblue", "Spends on childcare" = "tomato")) +
+  theme_minimal()
+
+childcare |>
+  filter(expchildcare_r > 0) |>
+  mutate(ccexp_bins = cut(ccexp_norm, breaks = 6)) |>
+  ggplot(aes(x = ccexp_bins)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Childcare Spending Among Families Who Spend on Childcare",
+    x = "Normalized Childcare Expenditure",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+## Linear Regressions
+combined <- bind_rows(
+  all_households <- childcare |>
+    select(ccexp_norm, foodsecureq2) |> 
+    mutate(dataset = "childcare"),
+   childcare_spending_households <- childcare2 |> 
+    select(ccexp_norm, foodsecureq2) |> 
+    mutate(dataset = "childcare2")
+) |>
+  mutate(
+    ccexp_bin    = cut(ccexp_norm, breaks = 6, dig.lab = 3),
+    foodsecureq2 = factor(foodsecureq2,
+                          levels = c(1, 2, 3),
+                          labels = c("Food insecure",
+                                     "Marginal insecurity",
+                                     "Food secure"))
+  )
+
+ggplot(combined, aes(x = ccexp_bin, fill = foodsecureq2)) +
+  geom_bar(position = "fill", color = "white", linewidth = 0.3) +
+  facet_wrap(~dataset, ncol = 1,
+           labeller = labeller(dataset = c(
+             "childcare"  = "All Households",
+             "childcare2" = "Households with Childcare Spending"
+           ))) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c(
+    "Food secure"         = "#5DCAA5",
+    "Marginal insecurity" = "#FAC775",
+    "Food insecure"       = "#D85A30")) +
+  labs(
+    x    = "Normalized Chilcare Expenses",
+    y    = "Proportion",
+    fill = NULL) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x      = element_text(angle = 35, hjust = 1),
+    legend.position  = "top",
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank())
+```
+## Logistic Regression
+```{r}
+childcare <- childcare |>
+  mutate(foodsecureq2 = factor(foodsecureq2,
+                                levels = c(1, 2, 3),
+                                labels = c("Food insecure",
+                                           "Marginally insecure",
+                                           "Food secure"),
+                                ordered = TRUE))
+
+childcare2 <- childcare2 |>
+  mutate(foodsecureq2 = factor(foodsecureq2,
+                                levels = c(1, 2, 3),
+                                labels = c("Food insecure",
+                                           "Marginally insecure",
+                                           "Food secure"),
+                                ordered = TRUE))
+
+summary(polr(foodsecureq2 ~ ccexp_norm, data = childcare,  Hess = TRUE))
+summary(polr(foodsecureq2 ~ ccexp_norm, data = childcare2, Hess = TRUE))
+
+m <- polr(foodsecureq2 ~ ccexp_norm, data = childcare, Hess = TRUE)
+ctable <- coef(summary(m))
+
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
+cbind(ctable, "p value" = round(p, 4))
+```
+
