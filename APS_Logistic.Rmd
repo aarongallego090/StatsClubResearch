@@ -1,0 +1,162 @@
+---
+title: "DesignAPS"
+output: pdf_document
+date: "2026-04-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(moderndive)
+library(MASS)
+library(ordinal)
+library(brant)
+```
+
+# Read Data
+
+```{r}
+household <- read.csv("~/Desktop/CSV_data_files/faps_household_puf.csv")
+household <- household |>
+  mutate(
+      income = inchhavg_r,
+      income_adj = log(pctpovguidehh_r),
+      catfoodsecureq3 = ordered(foodsecureq3,
+                               levels = c(1, 2, 3),
+                               labels = c("Often True", "Sometimes True", "Never True")),
+      eligible = if_any(starts_with("ELIG_UNITS"), ~ . == 1),
+      group = factor(case_when(
+          targetgroup == 4 & eligible ~ "SNAP",
+          eligible ~ "Eligible",
+        TRUE ~ NA_character_))
+        ) |>
+  filter(group %in% c("Eligible", "SNAP"),
+         foodsecureq3 >= 1,
+         income_adj > 0)
+
+household$group <- relevel(household$group, ref = "Eligible")
+```
+
+# Methods
+
+------------------------------------------------------------------------
+
+### Plots
+
+```{r sample size}
+ggplot(household, aes(x = group)) +
+  geom_bar() +
+  ggtitle("Sample Size: SNAP vs Eligible Non-SNAP") +
+  theme_minimal()
+```
+
+```{r ignore_income}
+# ci's
+ggplot(household, aes(x = group, y = foodsecureq3)) +
+  stat_summary(fun = mean, geom = "point") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.1) +
+  ylab("Response") +
+  xlab("Group") +
+  ggtitle("Couldn't afford to eat balanced meals, in last 30 days: 95% CI") +
+  theme_minimal()
+
+# categories
+ggplot(household, aes(x = group, fill = catfoodsecureq3)) +
+  geom_bar(position = "fill") +
+  ylab("Response") +
+  xlab("Group") +
+  ggtitle("Couldn't afford to eat balanced meals, in last 30 days: Categorical") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+
+# histograms
+ggplot(household |> filter(group == "Eligible"), aes(x = (income_adj))) +
+  geom_histogram() +
+  xlab("Log Income as % of FPG") +
+  xlim(0,8) + 
+  ggtitle("Histogram of Log Adjusted Income (Eligible)") +
+  theme_minimal()
+
+ggplot(household |> filter(group == "SNAP"), aes(x = (income_adj))) +
+  geom_histogram() +
+  xlab("Log Income as % of FPG") +
+  xlim(0,8) + 
+  ggtitle("Histogram of Log Adjusted Income (SNAP)") +
+  theme_minimal()
+```
+
+## Chi-Squared
+
+```{r}
+ct <- table(household$group, household$catfoodsecureq3)
+results <- chisq.test(ct)
+print(results)
+```
+
+## Regression
+
+```{r regression}
+#OLS
+# model
+m <- lm(foodsecureq3 ~ group + (income_adj), data = household)
+m |> summary()
+
+#plot
+ggplot(household, aes(x = (income_adj), y = foodsecureq3, color = group)) +
+  geom_point(alpha = 0.3) + 
+  xlim(0, 10) +
+  theme_minimal() +
+  geom_parallel_slopes(method = "lm", se = T) +
+  ggtitle("Linear Regression: Predicted Food Security")
+
+
+#Ordinal Regression
+# null
+null <- clm(catfoodsecureq3 ~ 1,
+    data = household, 
+    link = "logit")
+
+# model0
+model0 <-clm(catfoodsecureq3 ~ (income_adj),
+    data = household, 
+    link = "logit")
+
+# model1
+model1 <-clm(catfoodsecureq3 ~ group + (income_adj),
+    data = household, 
+    link = "logit")
+
+model <- polr(catfoodsecureq3 ~ group + income_adj, data = household, method = "logistic")
+model |> summary()
+
+#LRT
+anova(model0, model1, test = "Chisq")
+anova(null, model1, test = "Chisq")
+null |> summary()
+
+# plot
+newdata <- expand.grid(
+  income_adj = seq(min((household$income_adj)), max((household$income_adj)), length.out = 100),
+  group = c("Eligible", "SNAP")
+)
+
+# predicted probabilities
+p <- predict(model1, newdata = newdata, type = "prob")$fit
+
+# convert to expected val
+newdata$pred <- p[,1]*1 + p[,2]*2 + p[,3]*3
+
+ggplot(newdata, aes(x = (income_adj), y = pred, color = group)) +
+  geom_line(size = 1.2) +
+  ylim(1,3) +
+  ggtitle("Ordinal Regression: Predicted Food Security") + 
+  xlab("Log Income (% of FPG)") +
+  ylab("Expected Food Security")
+```
+
+## Diagnostics
+
+```{r}
+head(p)
+```
