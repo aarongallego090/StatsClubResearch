@@ -21,7 +21,7 @@ household <- read.csv("~/Desktop/CSV_data_files/faps_household_puf.csv")
 household <- household |>
   mutate(
       income = inchhavg_r,
-      income_adj = log(pctpovguidehh_r),
+      income_adj = log(pctpovguidehh_r), # Income as percent of FPG
       catfoodsecureq3 = ordered(foodsecureq3,
                                levels = c(1, 2, 3),
                                labels = c("Often True", "Sometimes True", "Never True")),
@@ -37,6 +37,12 @@ household <- household |>
 
 household$group <- relevel(household$group, ref = "Eligible")
 ```
+
+### Coding:
+
+FoodSecureQ3: 1,2,3 = "Often", "Sometimes", "Never"
+
+SNAP: 0, 1 = "Eligible", "Snap"
 
 # Methods
 
@@ -128,7 +134,7 @@ model1 <-clm(catfoodsecureq3 ~ group + (income_adj),
     link = "logit")
 
 model <- polr(catfoodsecureq3 ~ group + income_adj, data = household, method = "logistic")
-model |> summary()
+model1 |> summary()
 
 #LRT
 anova(model0, model1, test = "Chisq")
