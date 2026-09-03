@@ -17,7 +17,7 @@ library(brant)
 # Read Data
 
 ```{r}
-household <- read.csv("~/Desktop/CSV_data_files/faps_household_puf.csv")
+household <- read.csv("("faps_household_puf.csv")")
 household <- household |>
   mutate(
       income = inchhavg_r,
